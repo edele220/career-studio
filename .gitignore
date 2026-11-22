@@ -2,6 +2,7 @@
 /.env
 /.env.*
 /node_modules/
+/runtime/
 *.db
 *.db-shm
 *.db-wal
@@ -9,4 +10,5 @@
 *.blob
 *.exe
 *.log
+*.zip
 /拾阶求职数据-*.json

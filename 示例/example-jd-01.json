@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "id": "example-jd-01",
+  "title": "示例岗位分析与简历草稿",
+  "source": "Codex 对话",
+  "job": {
+    "title": "示例技术支持岗位",
+    "company": "示例公司",
+    "jd": "受理用户工单并记录处理过程。"
+  },
+  "experiences": [
+    {
+      "ref": "ticket-example",
+      "name": "示例工单排查",
+      "type": "项目经历",
+      "action": "检查日志并记录排查步骤。",
+      "tools": "日志查询",
+      "tags": ["工单排查"]
+    }
+  ],
+  "analysis": {
+    "summary": "有工单排查素材，可进一步确认处理范围。",
+    "requirements": ["受理工单", "记录处理流程"],
+    "evidence": [
+      {"experienceId": "ticket-example", "reason": "经历记录包含日志排查和步骤整理。"}
+    ],
+    "gaps": ["是否负责工单闭环需要确认。"],
+    "recommendation": "适合继续了解岗位，再决定是否投递。",
+    "suggestions": ["在简历里写清本人负责的排查步骤。"]
+  },
+  "resume": {"name": "示例技术支持简历", "experienceIds": ["ticket-example"]}
+}

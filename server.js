@@ -8,16 +8,24 @@ const { spawn } = require("node:child_process");
 const { createRequire } = require("node:module");
 
 const HOST = "127.0.0.1";
-const PORT = 8765;
+const PORT = Number(process.env.CAREER_STUDIO_PORT || 8765);
+if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65535) throw new Error("端口号无效。");
 const APP_URL = `http://${HOST}:${PORT}`;
 const ROOT = __dirname;
-const { OCR_LIMIT, readJobPage, recognizeScreenshot } = createRequire(path.join(ROOT, "server.js"))("./job-import.js");
-const INDEX_FILE = path.join(ROOT, "index.html");
+const requireLocal = createRequire(path.join(ROOT, "server.js"));
+const { OCR_LIMIT, readJobPage, recognizeScreenshot } = requireLocal("./job-import.js");
+const { listBundles, readBundle, applyBundle, fingerprint } = requireLocal("./conversation-records.js");
 const DATA_DIR = path.join(ROOT, "data");
+const INBOX_DIR = path.join(DATA_DIR, "对话收件箱");
 const DATABASE_FILE = path.join(DATA_DIR, "求职工作台.db");
 const LEGACY_JSON_FILE = path.join(DATA_DIR, "求职数据.json");
 const MAX_BODY_SIZE = 20 * 1024 * 1024;
 const COLLECTIONS = ["jobs", "experiences", "todos", "activities", "resumes"];
+const staticFiles = new Map([
+  ["/", ["index.html", "text/html"]], ["/index.html", ["index.html", "text/html"]],
+  ...["job-fields.js", "resume-model.js", "resume-designer.js", "conversation-ui.js"].map(file => [`/${file}`, [file, "text/javascript"]]),
+  ...["resume-designer.css", "resume-paper.css"].map(file => [`/${file}`, [file, "text/css"]])
+]);
 let writeQueue = Promise.resolve();
 
 function emptyState() {
@@ -28,7 +36,8 @@ function emptyState() {
     todos: [],
     activities: [],
     analyses: {},
-    resumes: []
+    resumes: [],
+    inboxReceipts: {}
   };
 }
 
@@ -98,7 +107,7 @@ function parseJson(text, label) {
 }
 
 function initializeDatabase() {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.mkdirSync(INBOX_DIR, { recursive: true });
   const database = new DatabaseSync(DATABASE_FILE);
   database.exec("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 5000;");
   database.exec(`
@@ -155,16 +164,32 @@ function readStateSync(database) {
     state[table] = database.prepare(`SELECT data FROM ${table} ORDER BY row_order`).all()
       .map(row => parseJson(row.data, table));
   }
-  state.analyses = {};
+  state.analyses = Object.create(null);
   for (const row of database.prepare("SELECT job_id, data FROM analyses ORDER BY job_id").all()) {
     state.analyses[row.job_id] = parseJson(row.data, "岗位分析");
   }
+  state.inboxReceipts = readInboxReceipts(database);
   return state;
 }
 
-function writeStateSync(database, data) {
+function readInboxReceipts(database) {
+  const row = database.prepare("SELECT value FROM metadata WHERE key = 'inbox_receipts'").get();
+  return row ? parseJson(row.value, "对话记录收录清单") : {};
+}
+
+function readRevision(database) {
+  return Number(database.prepare("SELECT value FROM metadata WHERE key = 'state_revision'").get()?.value || 0);
+}
+
+function writeStateSync(database, data, expectedRevision) {
   database.exec("BEGIN IMMEDIATE");
   try {
+    const revision = readRevision(database);
+    if (expectedRevision !== undefined && expectedRevision !== revision) {
+      const error = new Error("数据已在其他窗口更新。请重新读取数据库再保存。");
+      error.status = 409;
+      throw error;
+    }
     database.prepare(`
       INSERT INTO profile(id, data) VALUES (1, ?)
       ON CONFLICT(id) DO UPDATE SET data = excluded.data
@@ -193,29 +218,39 @@ function writeStateSync(database, data) {
       }
       insertAnalysis.run(jobId, JSON.stringify(analysis));
     }
-    database.prepare(`
-      INSERT INTO metadata(key, value) VALUES ('updated_at', ?)
+    const metadata = database.prepare(`
+      INSERT INTO metadata(key, value) VALUES (?, ?)
       ON CONFLICT(key) DO UPDATE SET value = excluded.value
-    `).run(new Date().toISOString());
+    `);
+    metadata.run("updated_at", new Date().toISOString());
+    metadata.run("state_revision", String(revision + 1));
+    if (data.inboxReceipts && typeof data.inboxReceipts === "object" && !Array.isArray(data.inboxReceipts)) {
+      metadata.run("inbox_receipts", JSON.stringify(data.inboxReceipts));
+    }
     database.exec("COMMIT");
+    return revision + 1;
   } catch (error) {
     database.exec("ROLLBACK");
     throw error;
   }
 }
 
-function writeState(data) {
-  const operation = writeQueue.then(() => writeStateSync(db, data));
+function queueWrite(action) {
+  const operation = writeQueue.then(action);
   writeQueue = operation.catch(() => {});
   return operation;
 }
 
 const db = initializeDatabase();
 
-async function handleJobImport(req, res, endpoint, query) {
+function isWorkbenchRequest(req) {
   const host = req.headers.host;
-  if (![`${HOST}:${PORT}`, `localhost:${PORT}`].includes(host) ||
-      (req.headers.origin && req.headers.origin !== `http://${host}`)) {
+  return [`${HOST}:${PORT}`, `localhost:${PORT}`].includes(host) &&
+    (!req.headers.origin || req.headers.origin === `http://${host}`);
+}
+
+async function handleJobImport(req, res, endpoint, query) {
+  if (!isWorkbenchRequest(req)) {
     sendJson(res, 403, { ok: false, message: "请从工作台页面发起岗位录入。" });
     return;
   }
@@ -232,6 +267,35 @@ async function handleJobImport(req, res, endpoint, query) {
     sendJson(res, 200, await readJobPage(data.url));
   } catch (error) {
     sendJson(res, 400, { ok: false, message: error.message });
+  }
+}
+
+async function handleInbox(req, res, endpoint) {
+  if (!isWorkbenchRequest(req)) {
+    sendJson(res, 403, { ok: false, message: "请在本机工作台查看对话记录。" });
+    return;
+  }
+  try {
+    if (endpoint === "/api/inbox" && req.method === "GET") {
+      sendJson(res, 200, { items: await listBundles(INBOX_DIR, readInboxReceipts(db)) });
+      return;
+    }
+    if (endpoint === "/api/inbox/accept" && req.method === "POST") {
+      if (req.headers["content-type"]?.split(";")[0] !== "application/json") throw new Error("请选择有效的对话记录。");
+      const input = parseJson((await readBody(req, 16 * 1024)).toString("utf8"), "收录记录");
+      const bundle = await readBundle(INBOX_DIR, input.file);
+      if (input.fingerprint !== fingerprint(bundle)) throw new Error("记录内容已更新，请返回列表重新预览。");
+      const accepted = await queueWrite(() => {
+        const revision = readRevision(db);
+        const { state, result } = applyBundle(readStateSync(db), bundle);
+        return { state, result, revision: writeStateSync(db, state, revision) };
+      });
+      sendJson(res, 200, accepted);
+      return;
+    }
+    sendJson(res, 404, { ok: false, message: "接口不存在" });
+  } catch (error) {
+    sendJson(res, error.status || 400, { ok: false, message: error.message });
   }
 }
 
@@ -258,6 +322,10 @@ async function handleApi(req, res) {
   }
 
   const [endpoint, query] = req.url.split("?", 2);
+  if (["/api/inbox", "/api/inbox/accept"].includes(endpoint)) {
+    await handleInbox(req, res, endpoint);
+    return;
+  }
   if (req.method === "POST" && ["/api/jobs/link", "/api/jobs/ocr"].includes(endpoint)) {
     await handleJobImport(req, res, endpoint, query);
     return;
@@ -265,7 +333,7 @@ async function handleApi(req, res) {
 
   if (req.url === "/api/data" && req.method === "GET") {
     try {
-      sendJson(res, 200, readStateSync(db));
+      sendJson(res, 200, { ...readStateSync(db), revision: readRevision(db) });
     } catch (error) {
       sendJson(res, 500, { ok: false, message: "无法读取 SQLite 数据库：" + error.message });
     }
@@ -284,10 +352,10 @@ async function handleApi(req, res) {
         sendJson(res, 400, { ok: false, message: "数据格式不完整，已拒绝写入" });
         return;
       }
-      await writeState(data);
-      sendJson(res, 200, { ok: true, savedAt: new Date().toISOString(), databaseFile: DATABASE_FILE });
+      const revision = await queueWrite(() => writeStateSync(db, data, data.revision));
+      sendJson(res, 200, { ok: true, revision, savedAt: new Date().toISOString(), databaseFile: DATABASE_FILE });
     } catch (error) {
-      sendJson(res, 400, { ok: false, message: "数据库保存失败：" + error.message });
+      sendJson(res, error.status || 400, { ok: false, message: "数据库保存失败：" + error.message });
     }
     return;
   }
@@ -302,11 +370,12 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  if (req.method === "GET" && ["/", "/index.html", "/job-fields.js"].includes(req.url)) {
+  const asset = staticFiles.get(req.url);
+  if (req.method === "GET" && asset) {
     try {
-      const isScript = req.url === "/job-fields.js";
-      const content = await fsp.readFile(isScript ? path.join(ROOT, "job-fields.js") : INDEX_FILE);
-      res.writeHead(200, { "Content-Type": isScript ? "text/javascript; charset=utf-8" : "text/html; charset=utf-8" });
+      const [file, contentType] = asset;
+      const content = await fsp.readFile(path.join(ROOT, file));
+      res.writeHead(200, { "Content-Type": `${contentType}; charset=utf-8` });
       res.end(content);
     } catch (error) {
       sendJson(res, 500, { ok: false, message: "无法读取网页：" + error.message });
@@ -326,7 +395,7 @@ const server = http.createServer(async (req, res) => {
 server.on("error", error => {
   if (error.code === "EADDRINUSE") {
     const occupied = () => {
-      console.error("端口 8765 已被其他程序占用，请关闭该程序后重试。");
+      console.error("端口 " + PORT + " 已被其他程序占用，请关闭该程序后重试。");
       process.exitCode = 1;
     };
     http.get(`${APP_URL}/api/health`, { signal: AbortSignal.timeout(2000) }, response => {

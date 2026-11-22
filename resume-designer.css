@@ -1,0 +1,56 @@
+.rd-layout{display:grid;grid-template-columns:minmax(290px,360px) minmax(0,1fr);gap:18px;align-items:start}
+.rd-controls{display:grid;gap:12px;min-width:0}
+.rd-controls>.card{padding:15px}
+.rd-controls h2,.rd-stage h2{margin:0;font-size:.9375rem}
+.rd-toolbar,.rd-controls .rd-actions{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.rd-toolbar{margin:0 0 12px}
+.rd-toolbar .rd-status{margin-left:auto}
+.rd-stage{min-width:0;padding:13px;background:#eae4d9}
+.rd-stage-head{display:flex;justify-content:space-between;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:10px}
+.rd-stage .rd-paper{border:1px solid #dedbd4;box-shadow:0 5px 24px #2d241314}
+#resumeStage{position:relative;overflow:hidden}
+#resumeStage .rd-paper{position:absolute;top:0;width:var(--rd-width);min-height:var(--rd-height);padding:var(--rd-pad);transform-origin:top left}
+#resumeStage:has(.rd-paper[hidden]){height:0!important}
+#resumeEmpty[hidden],.inbox-count[hidden]{display:none!important}
+.rd-controls details>summary{cursor:pointer;font-weight:650;padding:2px 0}
+.rd-controls details[open]>summary{margin-bottom:11px}
+.rd-fields{display:grid;gap:8px}
+.rd-fields.pair{grid-template-columns:repeat(2,minmax(0,1fr))}
+.rd-fields label{display:grid;gap:3px;color:var(--muted);font-size:.6875rem;min-width:0}
+.rd-fields input,.rd-fields select,.rd-fields textarea,.rd-controls>select{max-width:100%;min-width:0;width:100%}
+.rd-fields input[type=color]{padding:2px 5px;min-height:33px}
+.rd-fields textarea{min-height:58px;resize:vertical}
+.rd-group{margin-top:9px;padding-top:9px;border-top:1px solid var(--line)}
+.rd-section-edit{padding:8px 9px;background:var(--paper2);border:1px solid var(--line);border-radius:8px;margin:7px 0}
+.rd-section-edit>summary{overflow-wrap:anywhere}
+.rd-entry-edit{padding:9px 0;border-top:1px solid var(--line);margin-top:9px}
+.rd-entry-edit .rd-actions{justify-content:space-between;margin-bottom:6px}
+.rd-entry-edit>div+div{margin-top:5px}
+.rd-experiences{display:grid;gap:4px;max-height:230px;overflow:auto;margin:8px 0}
+.rd-experience{display:flex;gap:6px;align-items:flex-start;padding:4px;overflow-wrap:anywhere;font-size:.75rem}
+.rd-experience input{margin-top:2px;flex:none}
+.rd-versions{display:grid;gap:5px;margin-top:8px}
+.rd-versions button{width:100%;justify-content:space-between;text-align:left;white-space:normal}
+.record-trigger{display:inline-flex;gap:5px;align-items:center;white-space:nowrap}
+.record-list{display:grid;gap:9px}
+.record-card{display:grid;gap:6px;padding:12px;border:1px solid var(--line);border-radius:9px;background:var(--paper)}
+.record-card p{margin:0;overflow-wrap:anywhere}
+.record-report{border:1px solid var(--line);border-radius:8px;padding:10px;margin:8px 0}
+.record-report summary{cursor:pointer;font-size:.8125rem;font-weight:600}
+.record-report ul{padding-left:17px;margin:5px 0}
+.record-report li,.record-report .record-text{font-size:.75rem;line-height:1.65;overflow-wrap:anywhere;white-space:pre-line}
+.record-report h4{font-size:.75rem;margin:11px 0 4px}
+@media(max-width:1000px){.rd-layout{grid-template-columns:minmax(245px,315px) minmax(0,1fr)}}
+@media(max-width:780px){.rd-layout{grid-template-columns:minmax(0,1fr)}.rd-toolbar .rd-status{margin-left:0}}
+@media print{
+  body.print-resume{background:#fff;overflow:visible!important}
+  body.print-resume .sidebar,body.print-resume .mobile-head,body.print-resume .page-head,body.print-resume .toast-stack,body.print-resume .modal-back,body.print-resume .rd-controls,body.print-resume .rd-toolbar,body.print-resume .rd-stage-head{display:none!important}
+  body.print-resume .main{margin:0;padding:0}
+  body.print-resume .content{padding:0;max-width:none}
+  body.print-resume .page{display:none!important}
+  body.print-resume #resume,body.print-resume .rd-layout{display:block!important}
+  body.print-resume .rd-stage,body.print-resume .rd-paper{border:0;box-shadow:none;background:#fff}
+  body.print-resume .rd-stage{padding:0}
+  body.print-resume #resumeStage{position:static;overflow:visible;height:auto!important}
+  body.print-resume #resumeStage .rd-paper{position:static;width:100%;min-height:0;padding:0;transform:none!important}
+}
